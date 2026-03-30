@@ -150,22 +150,24 @@ export class MessengerService {
         return `${dias[date.getDay()]} ${day} ${meses[month - 1]}`;
     };
 
+    private formatDateShort(fecha: string): string {
+        const [, month, day] = fecha.split('-');
+        return `${month}/${day}`;
+    };
+
     private buildReportVariables(records: EmployeeRecords[]): { "1": string, "2": string, "3": string } {
-        const recordsPerVariable = Math.ceil(records.length / 3);
+        const dayLines = this.groupByDate(records);
+        const linesPerVariable = Math.ceil(dayLines.length / 3);
 
         const chunks = [
-            records.slice(0, recordsPerVariable),
-            records.slice(recordsPerVariable, recordsPerVariable * 2),
-            records.slice(recordsPerVariable * 2)
+            dayLines.slice(0, linesPerVariable),
+            dayLines.slice(linesPerVariable, linesPerVariable * 2),
+            dayLines.slice(linesPerVariable * 2)
         ];
 
-        const formatChunk = (chunk: EmployeeRecords[]): string => {
+        const formatChunk = (chunk: string[]): string => {
             if (chunk.length === 0) return '-';
-            return chunk.map(record =>
-                '[' + this.formatDate(record.fecha_acceso) + '] ' +
-                'Entrada: ' + this.formatTime(record.primera_hora) + ' / ' +
-                'Salida: ' + this.formatTime(record.ultima_hora)
-            ).join(' • ');
+            return chunk.join(' • ');
         };
 
         return {
@@ -173,6 +175,30 @@ export class MessengerService {
             "2": formatChunk(chunks[1]),
             "3": formatChunk(chunks[2])
         };
+    }
+
+    private groupByDate(records: EmployeeRecords[]): string[] {
+        const grouped = new Map<string, EmployeeRecords[]>();
+        for (const record of records) {
+            const key = record.fecha_acceso;
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key)!.push(record);
+        }
+
+        const hasSplitShift = Array.from(grouped.values()).some(turnos => turnos.length > 1);
+
+        return Array.from(grouped.entries()).map(([fecha, turnos]) => {
+            turnos.sort((a, b) => a.turno - b.turno);
+            if (hasSplitShift) {
+                const dateStr = this.formatDateShort(fecha);
+                const parts = turnos.map(t => `E: ${this.formatTime(t.hora_entrada)} / S: ${this.formatTime(t.hora_salida)}`);
+                return `[${dateStr}] ${parts.join(' | ')}`;
+            } else {
+                const dateStr = this.formatDate(fecha);
+                const parts = turnos.map(t => `Entrada: ${this.formatTime(t.hora_entrada)} / Salida: ${this.formatTime(t.hora_salida)}`);
+                return `[${dateStr}] ${parts.join(' | ')}`;
+            }
+        });
     }
 
     @Cron('0 9 * * 1', {
